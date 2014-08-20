@@ -126,7 +126,7 @@ module Svn2Git
           options[:exclude] << regex
         end
 
-        opts.on('--ignore-path path', 'Specify a path to ignore. This is sent into --ignore-path') do |path|
+        opts.on('--ignore-path path', 'Specify a svn path to ignore, accepts Perl regular expression; can be used mulitple times') do |path|
           options[:ignorepaths] << path
         end
 

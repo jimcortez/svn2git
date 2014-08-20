@@ -108,6 +108,10 @@ equivalent to the trunk and there are no tags or branches.
 doc directory and the backup files you once accidently added.
 
         $ svn2git http://svn.example.com/path/to/repo --exclude doc --exclude '.*~$'
+        
+5. The svn repo is in the standard layout but you want to exclude a subdirectory of bin files that got checked in.
+
+        $ svn2git http://svn.example.com/path/to/repo --ignore-path build/bin --ignore-path libs/tools/bin
 
 6. The svn repo actually tracks several projects and you only want to migrate
 one of them.
