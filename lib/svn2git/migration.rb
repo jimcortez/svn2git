@@ -13,15 +13,15 @@ module Svn2Git
     def initialize(args)
       @options = parse(args)
       if @options[:rebase]
-         show_help_message('Too many arguments') if args.size > 0
-         verify_working_tree_is_clean
+        show_help_message('Too many arguments') if args.size > 0
+        verify_working_tree_is_clean
       elsif @options[:rebasebranch]
-         show_help_message('Too many arguments') if args.size > 0
-         verify_working_tree_is_clean
+        show_help_message('Too many arguments') if args.size > 0
+        verify_working_tree_is_clean
       else
-         show_help_message('Missing SVN_URL parameter') if args.empty?
-         show_help_message('Too many arguments') if args.size > 1
-         @url = args.first.gsub(' ', "\\ ")
+        show_help_message('Missing SVN_URL parameter') if args.empty?
+        show_help_message('Too many arguments') if args.size > 1
+        @url = args.first.gsub(' ', "\\ ")
       end
     end
 
@@ -50,6 +50,7 @@ module Svn2Git
       options[:branches] = 'branches'
       options[:tags] = 'tags'
       options[:exclude] = []
+      options[:ignorepaths] = []
       options[:revision] = nil
       options[:username] = nil
       options[:rebasebranch] = false
@@ -125,6 +126,10 @@ module Svn2Git
           options[:exclude] << regex
         end
 
+        opts.on('--ignore-path path', 'Specify a path to ignore. This is sent into --ignore-path') do |path|
+          options[:ignorepaths] << path
+        end
+
         opts.on('-v', '--verbose', 'Be verbose in logging -- useful for debugging issues') do
           options[:verbose] = true
         end
@@ -159,7 +164,7 @@ module Svn2Git
       "git checkout -b \"#{branch}\" \"remotes/svn/#{branch}\""
     end
 
-  private
+    private
 
     def clone!
       trunk = @options[:trunk]
@@ -170,6 +175,7 @@ module Svn2Git
       rootistrunk = @options[:rootistrunk]
       authors = @options[:authors]
       exclude = @options[:exclude]
+      ignorepaths = @options[:ignorepaths]
       revision = @options[:revision]
       username = @options[:username]
 
@@ -210,16 +216,32 @@ module Svn2Git
         range[1] = "HEAD" unless range[1]
         cmd += "-r #{range[0]}:#{range[1]} "
       end
-      unless exclude.empty?
-        # Add exclude paths to the command line; some versions of git support
-        # this for fetch only, later also for init.
-        regex = []
-        unless rootistrunk
-          regex << "#{trunk}[/]" unless trunk.nil?
-          regex << "#{tags}[/][^/]+[/]" unless tags.nil?
-          regex << "#{branches}[/][^/]+[/]" unless branches.nil?
+
+      ignore_regexes = []
+      # Add exclude paths to the command line; some versions of git support
+      # this for fetch only, later also for init.
+
+      unless rootistrunk
+        roots_regex = []
+        roots_regex << "#{trunk}[/]" unless trunk.nil?
+        roots_regex << "#{tags}[/][^/]+[/]" unless tags.nil?
+        roots_regex << "#{branches}[/][^/]+[/]" unless branches.nil?
+        ignore_regexes << roots_regex
+      end
+
+      paths_regex = exclude
+      unless ignorepaths.empty?
+        ignorepaths.each do |ignorepath|
+          exclude << "#{ignorepath}[/][^/]+[/]"
         end
-        regex = '^(?:' + regex.join('|') + ')(?:' + exclude.join('|') + ')'
+        ignore_regexes << exclude
+      end
+
+      unless ignore_regexes.empty?
+        regex = '^'
+        ignore_regexes.each do |regex_group|
+          regex+='(?:' + regex_group.join('|') + ')'
+        end
         cmd += "'--ignore-paths=#{regex}'"
       end
       run_command(cmd, true, true)
@@ -230,8 +252,8 @@ module Svn2Git
     def get_branches
       # Get the list of local and remote branches, taking care to ignore console color codes and ignoring the
       # '*' character used to indicate the currently selected branch.
-      @local = run_command("git branch -l --no-color").split(/\n/).collect{ |b| b.gsub(/\*/,'').strip }
-      @remote = run_command("git branch -r --no-color").split(/\n/).collect{ |b| b.gsub(/\*/,'').strip }
+      @local = run_command("git branch -l --no-color").split(/\n/).collect { |b| b.gsub(/\*/, '').strip }
+      @remote = run_command("git branch -r --no-color").split(/\n/).collect { |b| b.gsub(/\*/, '').strip }
 
       # Tags are remote branches that start with "tags/".
       @tags = @remote.find_all { |b| b.strip =~ %r{^svn\/tags\/} }
@@ -239,15 +261,15 @@ module Svn2Git
     end
 
     def get_rebasebranch
-	  get_branches 
-	  @local = @local.find_all{|l| l == @options[:rebasebranch]}
-	  @remote = @remote.find_all{|r| r.include? @options[:rebasebranch]}
+      get_branches
+      @local = @local.find_all { |l| l == @options[:rebasebranch] }
+      @remote = @remote.find_all { |r| r.include? @options[:rebasebranch] }
 
-      if @local.count > 1 
+      if @local.count > 1
         pp "To many matching branches found (#{@local})."
         exit 1
       elsif @local.count == 0
-	    pp "No local branch named \"#{@options[:rebasebranch]}\" found."
+        pp "No local branch named \"#{@options[:rebasebranch]}\" found."
         exit 1
       end
 
@@ -255,11 +277,11 @@ module Svn2Git
         pp "To many matching remotes found (#{@remotes})"
         exit 1
       elsif @remote.count == 0
-	    pp "No remote branch named \"#{@options[:rebasebranch]}\" found."
+        pp "No remote branch named \"#{@options[:rebasebranch]}\" found."
         exit 1
       end
-	  pp "Local branches \"#{@local}\" found"
-	  pp "Remote branches \"#{@remote}\" found"
+      pp "Local branches \"#{@local}\" found"
+      pp "Remote branches \"#{@remote}\" found"
 
       @tags = [] # We only rebase the specified branch
 
@@ -267,16 +289,16 @@ module Svn2Git
 
     def fix_tags
       current = {}
-      current['user.name']  = run_command("#{git_config_command} --get user.name", false)
+      current['user.name'] = run_command("#{git_config_command} --get user.name", false)
       current['user.email'] = run_command("#{git_config_command} --get user.email", false)
 
       @tags.each do |tag|
         tag = tag.strip
-        id      = tag.gsub(%r{^svn\/tags\/}, '').strip
+        id = tag.gsub(%r{^svn\/tags\/}, '').strip
         subject = run_command("git log -1 --pretty=format:'%s' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
-        date    = run_command("git log -1 --pretty=format:'%ci' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
-        author  = run_command("git log -1 --pretty=format:'%an' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
-        email   = run_command("git log -1 --pretty=format:'%ae' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
+        date = run_command("git log -1 --pretty=format:'%ci' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
+        author = run_command("git log -1 --pretty=format:'%an' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
+        email = run_command("git log -1 --pretty=format:'%ae' \"#{escape_quotes(tag)}\"").chomp("'").reverse.chomp("'").reverse
         run_command("#{git_config_command} user.name \"#{escape_quotes(author)}\"")
         run_command("#{git_config_command} user.email \"#{escape_quotes(email)}\"")
 
@@ -308,17 +330,17 @@ module Svn2Git
       svn_branches.delete_if { |b| b.strip !~ %r{^svn\/} }
 
       if @options[:rebase]
-         run_command("git svn fetch", true, true)
+        run_command("git svn fetch", true, true)
       end
 
       svn_branches.each do |branch|
-        branch = branch.gsub(/^svn\//,'').strip
+        branch = branch.gsub(/^svn\//, '').strip
         if @options[:rebase] && (@local.include?(branch) || branch == 'trunk')
-           lbranch = branch
-           lbranch = 'master' if branch == 'trunk'
-           run_command("git checkout -f \"#{lbranch}\"")
-           run_command("git rebase \"remotes/svn/#{branch}\"")
-           next
+          lbranch = branch
+          lbranch = 'master' if branch == 'trunk'
+          run_command("git checkout -f \"#{lbranch}\"")
+          run_command("git rebase \"remotes/svn/#{branch}\"")
+          next
         end
 
         next if branch == 'trunk' || @local.include?(branch)
@@ -357,7 +379,7 @@ module Svn2Git
 
     def fix_trunk
       trunk = @remote.find { |b| b.strip == 'trunk' }
-      if trunk && ! @options[:rebase]
+      if trunk && !@options[:rebase]
         run_command("git checkout svn/trunk")
         run_command("git branch -D master")
         run_command("git checkout -f -b master")
