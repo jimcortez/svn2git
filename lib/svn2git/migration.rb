@@ -229,21 +229,32 @@ module Svn2Git
         ignore_regexes << roots_regex
       end
 
-      paths_regex = exclude
-      unless ignorepaths.empty?
-        ignorepaths.each do |ignorepath|
-          exclude << "#{ignorepath}[/][^/]+[/]"
-        end
+      unless exclude.empty?
         ignore_regexes << exclude
       end
 
+      paths_regex = []
+      unless ignorepaths.empty?
+        ignorepaths.each do |ignorepath|
+          paths_regex << "#{ignorepath.gsub('.', '\.')}"
+        end
+      end
+
+      cmd_ignore_paths_option=[]
       unless ignore_regexes.empty?
         regex = '^'
         ignore_regexes.each do |regex_group|
           regex+='(?:' + regex_group.join('|') + ')'
         end
-        cmd += "'--ignore-paths=#{regex}'"
+        cmd_ignore_paths_option << regex
       end
+
+      unless paths_regex.empty?
+        cmd_ignore_paths_option <<  paths_regex.join('|')
+      end
+
+      cmd += "--ignore-paths='(#{cmd_ignore_paths_option.join('|')})'"
+
       run_command(cmd, true, true)
 
       get_branches
